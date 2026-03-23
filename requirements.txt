@@ -1,5 +1,4 @@
 streamlit
 pandas
-zipfile
-pypdf
-pdfplumber
+numpy
+openpyxl
