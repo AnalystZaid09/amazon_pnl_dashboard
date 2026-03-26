@@ -111,8 +111,13 @@ with st.sidebar.expander("🏷️ Support Tool Results"):
     inbound_res = st.file_uploader("Inbound: inbound_pickup_pivot.csv", type=["xlsx", "csv"])
 
 with st.sidebar.expander("🏭 Secondary Support Results"):
-    secondary_files = st.file_uploader("Secondary Tool Results (Bergner, Tramontina, Hafele, etc.)", 
-                                       type=["xlsx", "csv"], accept_multiple_files=True)
+    sec_bergner = st.file_uploader("Bergner Secondary Support", type=["xlsx", "csv"], key="sec_bergner")
+    sec_tramontina = st.file_uploader("Tramontina Secondary Support", type=["xlsx", "csv"], key="sec_tramontina")
+    sec_hafele = st.file_uploader("Hafele Secondary Support", type=["xlsx", "csv"], key="sec_hafele")
+    sec_wonderchef = st.file_uploader("Wonderchef Secondary Support", type=["xlsx", "csv"], key="sec_wonderchef")
+    sec_panasonic = st.file_uploader("Panasonic Secondary Support", type=["xlsx", "csv"], key="sec_panasonic")
+    sec_inalsa = st.file_uploader("Inalsa Secondary Support", type=["xlsx", "csv"], key="sec_inalsa")
+    sec_victorinox = st.file_uploader("Victorinox Secondary Support", type=["xlsx", "csv"], key="sec_victorinox")
 
 with st.sidebar.expander("📉 System Metrics (RLC, Reimb, Damage)"):
     rev_fba = st.file_uploader("RLC FBA: rlc_fba_pivot.csv", type=["xlsx", "csv"])
@@ -150,17 +155,13 @@ if use_dashboard_data:
     if not damage_res: damage_res = get_local_f("current_damage_summary.csv")
     if not interest_damage_file: interest_damage_file = get_local_f("Interest & Damage Resolve.xlsx")
     
-    # Auto-load secondary files from dashboard_data
-    auto_sec = []
-    sec_names = ["bergner_sec_support.xlsx", "tramontina_sec_support.xlsx", "hafele_sec_support.xlsx", "wonderchef_sec_support.xlsx"]
-    for sn in sec_names:
-        lf = get_local_f(sn)
-        if lf: auto_sec.append(lf)
-    if not secondary_files:
-        secondary_files = auto_sec
-    else:
-        # Combine manual and auto-loaded
-        secondary_files = list(secondary_files) + auto_sec
+    if not sec_bergner: sec_bergner = get_local_f("bergner_sec_support.xlsx")
+    if not sec_tramontina: sec_tramontina = get_local_f("tramontina_sec_support.xlsx")
+    if not sec_hafele: sec_hafele = get_local_f("hafele_sec_support.xlsx")
+    if not sec_wonderchef: sec_wonderchef = get_local_f("wonderchef_sec_support.xlsx")
+    if not sec_panasonic: sec_panasonic = get_local_f("panasonic_sec_support.xlsx")
+    if not sec_inalsa: sec_inalsa = get_local_f("inalsa_sec_support.xlsx")
+    if not sec_victorinox: sec_victorinox = get_local_f("victorinox_sec_support.xlsx")
 
 # ==========================================
 # MAIN UI
@@ -186,8 +187,14 @@ def load_and_norm(f, prefix=None):
         
         df.columns = [str(c).replace('\n', ' ').strip() for c in df.columns]
         df = normalize_df(df)
+        
+        # If Brand is missing and we have a secondary support prefix, assign it
+        if df is not None and "Brand" not in df.columns and prefix:
+            if prefix in ["Bergner", "Tramontina", "Hafele", "Wonderchef", "Panasonic", "Victorinox"]:
+                df["Brand"] = prefix
+        
         # Remove total rows
-        if "Brand" in df.columns:
+        if df is not None and "Brand" in df.columns:
             df = df[~df["Brand"].astype(str).str.upper().isin(["GRAND TOTAL", "TOTAL"])]
             if prefix:
                 # Rename all non-brand columns to avoid collisions, but avoid redundant prefixes
@@ -211,8 +218,12 @@ merges = [
     (exchange_res, "Exchange"), (freebies_res, "Freebies"), (rl_res, "Replacement"), 
     (dyson_res, "Dyson"), (rev_fba, "RLC FBA"), (rev_sel, "RLC Seller"), 
     (reimb_fba, "Reimb FBA"), (reimb_sel, "Reimb Seller"), (loss_fba, "Loss FBA"), 
-    (loss_sel, "Loss Seller"), (inv_res, "Inventory"), (storage_res, "Storage"),
-    (damage_res, "Damage"), (inbound_res, "Inbound")
+    (loss_sel, "Loss Seller"),    (inv_res, "Inventory"), (storage_res, "Storage"),
+    (damage_res, "Damage"), (inbound_res, "Inbound"),
+    # Secondary Files
+    (sec_bergner, "Bergner"), (sec_tramontina, "Tramontina"), (sec_hafele, "Hafele"),
+    (sec_wonderchef, "Wonderchef"), (sec_panasonic, "Panasonic"), (sec_inalsa, "Inalsa"),
+    (sec_victorinox, "Victorinox")
 ]
 
 final_df = base_df.copy()
@@ -221,14 +232,6 @@ for f, pref in merges:
     if df_add is not None and "Brand" in df_add.columns:
         cols = [c for c in df_add.columns if c != "Brand"]
         final_df = pd.merge(final_df, df_add[["Brand"] + cols], on="Brand", how="outer")
-
-# Secondary files (multi-upload)
-if secondary_files:
-    for f in secondary_files:
-        df_sec = load_and_norm(f, prefix=f.name.split("_")[0].title()) # Guess brand from filename
-        if df_sec is not None and "Brand" in df_sec.columns:
-            cols = [c for c in df_sec.columns if c != "Brand"]
-            final_df = pd.merge(final_df, df_sec[["Brand"] + cols], on="Brand", how="outer")
 
 final_df["Brand"] = final_df["Brand"].fillna("Unknown/Unmapped")
 
@@ -247,28 +250,29 @@ col_rename = {
     "cost of goods sold": "Cost of goods sold", "cp as per qty": "Cost of goods sold",
     "profit": "Net PnL", "p&l": "Net PnL", "net pnl": "Net PnL",
     "coupon discount": "Coupon Support", "coupon support": "Coupon Support", "coupon total": "Coupon Support", "coupon coupon discount": "Coupon Support", "coupon coupon support": "Coupon Support",
-    "total seller funding": "Exchange Support", "exchange funding": "Exchange Support", "exchange support": "Exchange Support", "exchange exchange support": "Exchange Support",
+    "total seller funding": "Exchange Support", "exchange funding": "Exchange Support", "exchange support": "Exchange Support", "exchange exchange support": "Exchange Support", "exchange total seller funding": "Exchange Support",
     "freebies discount": "Freebies", "freebies": "Freebies", "freebies support": "Freebies", "freebies disc count": "Freebies", "freebies base amount": "Freebies",
     "total amount (incl. gst)": "Advertising Support", "advertising support": "Advertising Support", "ads support": "Advertising Support", "ads total amount (incl. gst)": "Advertising Support", "ads total amount": "Advertising Support",
     "ncemi support": "NCEMI Support", "ncemi total": "NCEMI Support", "ncemi ncemi support": "NCEMI Support",
     "inbound total": "Inbound Pick Up Service", "inbound inbound pick up service": "Inbound Pick Up Service", "inbound pick up service": "Inbound Pick Up Service",
     "replacement total": "Replacement charges", "replacement charges": "Replacement charges", "replacement quantity": "Replacement charges",
-    "dyson support": "Dyson Support", "dyson support as per net sale": "Dyson Support", "dyson dyson support": "Dyson Support",
-    "bergner support": "Bergner Sec Support", "bergner p/l on orders qty": "Bergner Sec Support", "bergner sec cn value": "Bergner Sec Support", "bergner bergner support": "Bergner Sec Support",
-    "tramontina support": "Tramontina Sec Support", "tramontina sec support": "Tramontina Sec Support", "tramontina tramontina support": "Tramontina Sec Support",
-    "wonderchef support": "Wonderchef Sec Support", "wonderchef sec support": "Wonderchef Sec Support",
-    "hafele support": "Hafele Sec Support", "hafele sec support": "Hafele Sec Support",
-    "panasonic support": "Panasonic Sec Support", "panasonic sec support": "Panasonic Sec Support",
-    "victorinox support": "Victorinox Sec Support", "victorinox sec support": "Victorinox Sec Support", "victorinox sec cn value": "Victorinox Sec Support",
+    "dyson support": "Price Support", "dyson support as per net sale": "Price Support", "dyson dyson support": "Price Support",
+    # All secondary brands map to Price Support
+    "bergner support": "Price Support", "bergner p/l on orders qty": "Price Support", "bergner sec cn value": "Price Support", "bergner bergner support": "Price Support",
+    "tramontina support": "Price Support", "tramontina sec support": "Price Support", "tramontina tramontina support": "Price Support",
+    "wonderchef support": "Price Support", "wonderchef sec support": "Price Support",
+    "hafele support": "Price Support", "hafele sec support": "Price Support",
+    "panasonic support": "Price Support", "panasonic sec support": "Price Support",
+    "victorinox support": "Price Support", "victorinox sec support": "Price Support", "victorinox sec cn value": "Price Support",
     "inalsasupport": "Price Support", "inalsa credit note amount": "Price Support", "inalsa support": "Price Support",
     "reimb fba total": "Reimbursement FBA", "reimb fba fba reimbursement": "Reimbursement FBA", "reimbursement fba": "Reimbursement FBA", "reimb fba fba reimbursement amount": "Reimbursement FBA", "reimb fba amount-total": "Reimbursement FBA",
     "reimb seller total": "Reimbursement Seller Flex (Safe T Claim)", "reimbursement seller flex (safe t claim)": "Reimbursement Seller Flex (Safe T Claim)", "reimb seller seller reimbursement": "Reimbursement Seller Flex (Safe T Claim)",
     "rlc fba total": "Reverse logistics FBA", "rlc fba reverse logistics fba": "Reverse logistics FBA", "reverse logistics fba": "Reverse logistics FBA",
-    "rlc seller total": "Reverse logistics Seller Flex Reverse", "reverse logistics seller flex reverse": "Reverse logistics Seller Flex Reverse",
+    "rlc seller total": "Reverse logistics Seller Flex Reverse", "reverse logistics seller flex reverse": "Reverse logistics Seller Flex Reverse", "rlc seller reverse logistics seller flex reverse": "Reverse logistics Seller Flex Reverse",
     "loss fba total": "Loss in damages FBA", "loss fba fba loss": "Loss in damages FBA", "loss in damages fba": "Loss in damages FBA",
     "loss seller total": "Loss in damages Seller Flex", "loss in damages seller flex": "Loss in damages Seller Flex", "loss seller seller loss": "Loss in damages Seller Flex",
     "inventory total": "Current Inventory", "inventory cp inventory value": "Current Inventory", "current inventory": "Current Inventory", "inventory current inventory value": "Current Inventory", "cp inventory value": "Current Inventory",
-    "storage total": "Storage Charges", "storage storage fee": "Storage Charges", "storage charges": "Storage Charges", "storage estimated-monthly-storage-fee": "Storage Charges",
+    "storage total": "Storage Charges", "storage storage fee": "Storage Charges", "storage charges": "Storage Charges", "storage estimated-monthly-storage-fee": "Storage Charges", "storage fee": "Storage Charges",
     "damage current damages": "Current damages", "damage cp as per qty": "Current damages", "current damages": "Current damages", "current cp as per qty": "Current damages", "damage total": "Current damages"
 }
 
@@ -352,15 +356,40 @@ final_df["Actual Loss of Damage"] = final_df["Loss in damages Total"] - (final_d
 if interest_damage_file:
     try:
         id_df = pd.read_excel(interest_damage_file)
+        id_df.columns = [str(c).replace('\n', ' ').strip() for c in id_df.columns]
         id_df = normalize_df(id_df)
         if "Brand" in id_df.columns:
-            # Join Interest and Damage metrics
-            final_df = pd.merge(final_df, id_df[["Brand"] + [c for c in id_df.columns if c != "Brand"]], on="Brand", how="left").fillna(0)
-            # Find Interest % and Damage % columns in joined df
-            for c in final_df.columns:
-                if "interest" in str(c).lower() and "%" in str(c): final_df["Interest %"] = final_df[c]
-                if "damage" in str(c).lower() and "%" in str(c): final_df["Damage Resolve %"] = final_df[c]
-    except: pass
+            # Explicitly find and rename Interest/Damage columns in ID file
+            for c in id_df.columns:
+                lc = str(c).lower()
+                if "interest" in lc and "%" in lc:
+                    id_df.rename(columns={c: "Interest %"}, inplace=True)
+                elif "damage" in lc and "%" in lc:
+                    id_df.rename(columns={c: "Damage Resolve %"}, inplace=True)
+                elif "interest" in lc and "rate" in lc:
+                    id_df.rename(columns={c: "Interest %"}, inplace=True) # Fallback for 'Interest rate'
+            
+            # Ensure numeric and scale if they are in decimal format (e.g. 0.01 -> 1.0)
+            if "Interest %" in id_df.columns:
+                id_df["Interest %"] = pd.to_numeric(id_df["Interest %"], errors="coerce").fillna(0)
+                if id_df["Interest %"].max() <= 1.0 and id_df["Interest %"].any():
+                    id_df["Interest %"] = id_df["Interest %"] * 100
+            
+            if "Damage Resolve %" in id_df.columns:
+                id_df["Damage Resolve %"] = pd.to_numeric(id_df["Damage Resolve %"], errors="coerce").fillna(0)
+                if id_df["Damage Resolve %"].max() <= 1.0 and id_df["Damage Resolve %"].any():
+                    id_df["Damage Resolve %"] = id_df["Damage Resolve %"] * 100
+
+            # Drop existing columns from final_df to ensure override
+            for col_to_ovr in ["Interest %", "Damage Resolve %"]:
+                if col_to_ovr in id_df.columns and col_to_ovr in final_df.columns:
+                    final_df.drop(columns=[col_to_ovr], inplace=True)
+            
+            # Merge the override values
+            id_sub = id_df[["Brand"] + [c for c in ["Interest %", "Damage Resolve %"] if c in id_df.columns]]
+            final_df = pd.merge(final_df, id_sub, on="Brand", how="left").fillna(0)
+    except Exception as e:
+        st.error(f"Error merging Interest/Damage override: {e}")
 
 final_df["Net PnL"] = final_df["Gross PnL level 3"] - final_df["Actual Loss of Damage"]
 mask_cogs = final_df["Cost of goods sold"] != 0
@@ -403,9 +432,18 @@ m1, m2 = st.columns(2)
 m1.metric("Total Brands", len(final_df[final_df["Brand"] != "TOTAL"]))
 m2.metric("Total Net PnL", format_currency(sum_row["Net PnL"].iloc[0]))
 
-st.write("### 📋 Brand-wise Combined Support Report")
+# Final Styling
+def format_percent(val):
+    try:
+        return f"{float(val):.2f}%"
+    except:
+        return str(val)
+
 st.dataframe(
-    final_df.style.format({c: format_currency for c in requested_cols if "%" not in c and "in %" not in c}),
+    final_df.style.format({
+        **{c: format_currency for c in requested_cols if ("%" not in c and "in %" not in c) or c == "Admin @1%"},
+        **{c: format_percent for c in requested_cols if ("%" in c or "in %" in c) and c != "Admin @1%"}
+    }),
     use_container_width=True,
     height=600
 )
