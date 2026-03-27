@@ -89,21 +89,7 @@ def to_clean_numeric(series):
 # SIDEBAR - PROCESSED REPORT UPLOADS
 # ==========================================
 st.sidebar.title("📤 Upload Processed Reports")
-st.sidebar.info("Upload files or auto-load from 'dashboard_data' folder.")
-
-# Bulk Auto-load Logic
-use_dashboard_data = st.sidebar.checkbox("📂 Auto-load from 'dashboard_data' folder", value=True)
-
-def get_local_f(filename):
-    if not use_dashboard_data: return None
-    path = os.path.join("dashboard_data", filename)
-    if os.path.exists(path):
-        class LocalF:
-            def __init__(self, p):
-                self.path = p
-                self.name = os.path.basename(p)
-        return LocalF(path)
-    return None
+st.sidebar.info("Upload all required processed reports manually to generate the summary.")
 
 with st.sidebar.expander("📊 Primary Sales Data", expanded=True):
     net_sale_result = st.file_uploader("Net Sale: brand_summary.xlsx", type=["xlsx", "csv"], key="net_sale_res")
@@ -141,35 +127,7 @@ with st.sidebar.expander("📉 System Metrics (RLC, Reimb, Damage)"):
 with st.sidebar.expander("⚙️ Optional Overrides"):
     interest_damage_file = st.file_uploader("Interest & Damage Resolve Override", type=["xlsx", "xls"], key="int_dam_res")
 
-# Fallback to local files if enabled and not uploaded
-if use_dashboard_data:
-    if not net_sale_result: net_sale_result = get_local_f("brand_summary.xlsx")
-    if not coupon_res: coupon_res = get_local_f("coupon_pivot_table.xlsx")
-    if not ncemi_res: ncemi_res = get_local_f("ncemi_brand_analysis.csv")
-    if not ads_res: ads_res = get_local_f("ads_pivot_table.xlsx")
-    if not exchange_res: exchange_res = get_local_f("exchange_pivot_all.xlsx")
-    if not freebies_res: freebies_res = get_local_f("freebies_pivot_table.xlsx")
-    if not rl_res: rl_res = get_local_f("rl_brand_summary.xlsx")
-    if not dyson_res: dyson_res = get_local_f("dyson_final_support.csv") or get_local_f("dyson_combined_final_support_analysis (1).csv")
-    if not inbound_res: inbound_res = get_local_f("inbound_pickup_pivot.csv")
-    if not rev_fba: rev_fba = get_local_f("rlc_fba_pivot.csv")
-    if not rev_sel: rev_sel = get_local_f("rlc_seller_pivot.csv")
-    if not reimb_fba: reimb_fba = get_local_f("reimbursement_fba_pivot.csv")
-    if not reimb_sel: reimb_sel = get_local_f("reimbursement_seller_pivot.csv")
-    if not loss_fba: loss_fba = get_local_f("loss_fba_pivot.csv")
-    if not loss_sel: loss_sel = get_local_f("loss_seller_pivot.csv")
-    if not inv_res: inv_res = get_local_f("inventory_brand_pivot.csv")
-    if not storage_res: storage_res = get_local_f("storage_brand_pivot.csv")
-    if not damage_res: damage_res = get_local_f("current_damage_summary.csv")
-    if not interest_damage_file: interest_damage_file = get_local_f("Interest & Damage Resolve.xlsx")
-    
-    if not sec_bergner: sec_bergner = get_local_f("bergner_sec_support.xlsx")
-    if not sec_tramontina: sec_tramontina = get_local_f("tramontina_sec_support.xlsx")
-    if not sec_hafele: sec_hafele = get_local_f("hafele_sec_support.xlsx")
-    if not sec_wonderchef: sec_wonderchef = get_local_f("wonderchef_sec_support.xlsx")
-    if not sec_panasonic: sec_panasonic = get_local_f("panasonic_sec_support.xlsx")
-    if not sec_inalsa: sec_inalsa = get_local_f("inalsa_sec_support.xlsx")
-    if not sec_victorinox: sec_victorinox = get_local_f("victorinox_sec_support.xlsx")
+
 
 # ==========================================
 # MAIN UI
