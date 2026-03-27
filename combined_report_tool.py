@@ -63,9 +63,13 @@ def find_brand_col(df):
     for col in df.columns:
         if str(col).strip().lower() == "brand":
             return col
-    # Fallback to anything containing 'brand'
+    # Fallback to anything containing 'brand' but not metrics
     for col in df.columns:
-        if "brand" in str(col).lower():
+        lc = str(col).lower()
+        if "brand" in lc:
+            # Skip columns that look like metrics (e.g. "Brand Damage Resolve")
+            if any(m in lc for m in ["interest", "damage", "resolve", "%"]):
+                continue
             return col
     return None
 
@@ -74,8 +78,12 @@ def normalize_df(df):
     brand_col = find_brand_col(df)
     if brand_col:
         df = df.rename(columns={brand_col: "Brand"})
-        df["Brand"] = df["Brand"].astype(str).str.strip().str.title()
+        df["Brand"] = df["Brand"].astype(str).str.replace('\r', '').str.replace('\n', ' ').str.strip().str.title()
     return df
+
+def to_clean_numeric(series):
+    """Convert series to numeric, handling commas and spaces"""
+    return pd.to_numeric(series.astype(str).str.replace(',', '', regex=False).str.replace(' ', '', regex=False).replace(['nan', 'None', '', 'nan '], '0'), errors='coerce').fillna(0)
 
 # ==========================================
 # SIDEBAR - PROCESSED REPORT UPLOADS
@@ -194,17 +202,29 @@ def load_and_norm(f, prefix=None):
                 df["Brand"] = prefix
         
         # Remove total rows
+        # Remove total rows
         if df is not None and "Brand" in df.columns:
             df = df[~df["Brand"].astype(str).str.upper().isin(["GRAND TOTAL", "TOTAL"])]
+            
             if prefix:
-                # Rename all non-brand columns to avoid collisions, but avoid redundant prefixes
+                # Rename all non-brand columns
                 for col in df.columns:
                     if col != "Brand":
                         c_str = str(col)
                         if not c_str.lower().startswith(prefix.lower()):
                             df.rename(columns={col: f"{prefix} {c_str}"}, inplace=True)
+            
+            # CRITICAL: Aggregate by Brand BEFORE returning to prevent 1-to-many merge duplicates
+            # Convert all non-brand columns to numeric first
+            for col in df.columns:
+                if col != "Brand":
+                    df[col] = to_clean_numeric(df[col])
+            
+            df = df.groupby("Brand").sum().reset_index()
+            return df
         return df
-    except: return None
+    except Exception as e:
+        return None
 
 # Load primary file
 base_df = load_and_norm(net_sale_result)
@@ -236,7 +256,11 @@ for f, pref in merges:
 final_df["Brand"] = final_df["Brand"].fillna("Unknown/Unmapped")
 
 # Safety group by Brand to ensure no duplicates after merges
-final_df = final_df.groupby("Brand").sum(numeric_only=True).reset_index()
+# Ensure all columns except Brand are robustly numeric to prevent data loss in groupby
+for col in final_df.columns:
+    if col != "Brand":
+        final_df[col] = to_clean_numeric(final_df[col])
+final_df = final_df.groupby("Brand").sum().reset_index()
 
 # ==========================================
 # CALCULATION ENGINE
@@ -251,11 +275,11 @@ col_rename = {
     "profit": "Net PnL", "p&l": "Net PnL", "net pnl": "Net PnL",
     "coupon discount": "Coupon Support", "coupon support": "Coupon Support", "coupon total": "Coupon Support", "coupon coupon discount": "Coupon Support", "coupon coupon support": "Coupon Support",
     "total seller funding": "Exchange Support", "exchange funding": "Exchange Support", "exchange support": "Exchange Support", "exchange exchange support": "Exchange Support", "exchange total seller funding": "Exchange Support",
-    "freebies discount": "Freebies", "freebies": "Freebies", "freebies support": "Freebies", "freebies disc count": "Freebies", "freebies base amount": "Freebies",
+    "freebies discount": "Freebies", "freebies": "Freebies (Raw)", "freebies support": "Freebies Support", "freebies disc count": "Freebies Disc Count", "freebies base amount": "Freebies Base Amount",
     "total amount (incl. gst)": "Advertising Support", "advertising support": "Advertising Support", "ads support": "Advertising Support", "ads total amount (incl. gst)": "Advertising Support", "ads total amount": "Advertising Support",
     "ncemi support": "NCEMI Support", "ncemi total": "NCEMI Support", "ncemi ncemi support": "NCEMI Support",
     "inbound total": "Inbound Pick Up Service", "inbound inbound pick up service": "Inbound Pick Up Service", "inbound pick up service": "Inbound Pick Up Service",
-    "replacement total": "Replacement charges", "replacement charges": "Replacement charges", "replacement quantity": "Replacement charges",
+    "replacement total": "Replacement charges", "replacement charges": "Replacement charges", "replacement quantity": "Replacement Quantity", "replacement tot78": "Replacement charges",
     "dyson support": "Price Support", "dyson support as per net sale": "Price Support", "dyson dyson support": "Price Support",
     # All secondary brands map to Price Support
     "bergner support": "Price Support", "bergner p/l on orders qty": "Price Support", "bergner sec cn value": "Price Support", "bergner bergner support": "Price Support",
@@ -350,7 +374,6 @@ final_df["Loss in damages Total"] = final_df["Loss in damages FBA"] + final_df["
 mask_dmg = final_df["Loss in damages Total"] != 0
 final_df.loc[mask_dmg, "Damage Resolve %"] = (final_df.loc[mask_dmg, "Total Reimbursement"] / final_df.loc[mask_dmg, "Loss in damages Total"]) * 100
 
-final_df["Actual Loss of Damage"] = final_df["Loss in damages Total"] - (final_df["Loss in damages Total"] * final_df["Damage Resolve %"] / 100)
 
 # Optional: Override Damage Resolve if provided by file
 if interest_damage_file:
@@ -362,12 +385,10 @@ if interest_damage_file:
             # Explicitly find and rename Interest/Damage columns in ID file
             for c in id_df.columns:
                 lc = str(c).lower()
-                if "interest" in lc and "%" in lc:
+                if "interest" in lc and ("%" in lc or "rate" in lc):
                     id_df.rename(columns={c: "Interest %"}, inplace=True)
-                elif "damage" in lc and "%" in lc:
+                elif "damage" in lc and ("%" in lc or "resolve" in lc):
                     id_df.rename(columns={c: "Damage Resolve %"}, inplace=True)
-                elif "interest" in lc and "rate" in lc:
-                    id_df.rename(columns={c: "Interest %"}, inplace=True) # Fallback for 'Interest rate'
             
             # Ensure numeric and scale if they are in decimal format (e.g. 0.01 -> 1.0)
             if "Interest %" in id_df.columns:
@@ -390,6 +411,9 @@ if interest_damage_file:
             final_df = pd.merge(final_df, id_sub, on="Brand", how="left").fillna(0)
     except Exception as e:
         st.error(f"Error merging Interest/Damage override: {e}")
+
+# Re-calculate Actual Loss of Damage (accounts for overrides)
+final_df["Actual Loss of Damage"] = final_df["Loss in damages Total"] - (final_df["Loss in damages Total"] * final_df["Damage Resolve %"] / 100)
 
 final_df["Net PnL"] = final_df["Gross PnL level 3"] - final_df["Actual Loss of Damage"]
 mask_cogs = final_df["Cost of goods sold"] != 0
