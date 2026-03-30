@@ -190,6 +190,40 @@ if base_df is None or "Brand" not in base_df.columns:
     st.error("Could not find a 'Brand' column in the Net Sale report.")
     st.stop()
 
+# Initialize/Update manual price support dictionary
+current_brands = sorted(base_df["Brand"].unique())
+if "manual_ps_dict" not in st.session_state:
+    st.session_state.manual_ps_dict = {b: 0.0 for b in current_brands}
+else:
+    # Key existing values and add new brands if any
+    for b in current_brands:
+        if b not in st.session_state.manual_ps_dict:
+            st.session_state.manual_ps_dict[b] = 0.0
+
+# ✍️ MANUAL PRICE SUPPORT FORM
+st.markdown("---")
+with st.container():
+    st.subheader("✍️ Manual Price Support Overrides")
+    c1, c2, c3 = st.columns([3, 2, 2])
+    
+    with c1:
+        selected_brand = st.selectbox("Select Brand for Manual Support", options=current_brands, key="sel_br")
+    with c2:
+        current_val = st.session_state.manual_ps_dict.get(selected_brand, 0.0)
+        new_val = st.number_input(f"Price Support for {selected_brand}", value=float(current_val), step=1000.0, key="val_br")
+    with c3:
+        st.write(" ") # Padding
+        if st.button("Update Brand Support", use_container_width=True, type="primary"):
+            st.session_state.manual_ps_dict[selected_brand] = new_val
+            st.success(f"Updated {selected_brand} support to ₹{new_val:,.2f}")
+            st.rerun()
+
+    # Show small summary of manual entries
+    manual_entries = {k: v for k, v in st.session_state.manual_ps_dict.items() if v != 0}
+    if manual_entries:
+        with st.expander("📝 View All Manual Price Support Overrides", expanded=False):
+            st.table(pd.DataFrame(list(manual_entries.items()), columns=["Brand", "Manual Price Support"]))
+
 # Merge Logic with specific prefixes
 merges = [
     (coupon_res, "Coupon"), (ncemi_res, "NCEMI"), (ads_res, "Ads"), 
@@ -278,6 +312,19 @@ final_df = pd.DataFrame(standardized_data)
 final_df["Brand"] = final_df["Brand"].astype(str).str.strip().str.title()
 # Group by Brand in case merges created duplicate brand rows (or case-variant brands)
 final_df = final_df.groupby("Brand").sum().reset_index()
+
+# Apply Manual Price Support
+if "manual_ps_dict" in st.session_state:
+    manual_df = pd.DataFrame(list(st.session_state.manual_ps_dict.items()), columns=["Brand", "Manual Price Support"])
+    manual_df["Brand"] = manual_df["Brand"].astype(str).str.strip().str.title()
+    final_df = pd.merge(final_df, manual_df, on="Brand", how="left")
+    final_df["Manual Price Support"] = final_df["Manual Price Support"].fillna(0)
+    
+    if "Price Support" not in final_df.columns:
+        final_df["Price Support"] = 0.0
+    
+    final_df["Price Support"] = final_df["Price Support"] + final_df["Manual Price Support"]
+    final_df.drop(columns=["Manual Price Support"], inplace=True)
 
 # List of columns to ensure presence
 requested_cols = [
